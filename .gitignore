@@ -1,1 +1,4 @@
-node_modules
+.aws-sam/
+*.log
+node_modules/
+layers/uuid-layer/nodejs/node_modules/.cache/
