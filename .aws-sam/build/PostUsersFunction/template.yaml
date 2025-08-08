@@ -1,0 +1,73 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: User API with Lambda, DynamoDB, uuid layer, and AWS SDK layer
+
+Globals:
+  Function:
+    Runtime: nodejs18.x
+    Timeout: 10
+    Environment:
+      Variables:
+        TABLE_NAME: !Ref UsersTable
+    Layers:
+      # Layer tự tạo để dùng uuid (npm install uuid trong layers/uuid-layer/nodejs)
+      - !Ref UuidLayer
+      # Layer do AWS phát hành để có aws-sdk trên Node 18 (us-east-1)
+      - arn:aws:lambda:us-east-1:668099181075:layer:AWSLambda-Node-AWS-SDK:6
+
+Resources:
+  GetUsersFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/getUsers.handler
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+      Events:
+        GetUsers:
+          Type: Api
+          Properties:
+            Path: /users
+            Method: GET
+
+  PostUsersFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/postUsers.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersTable
+      Events:
+        PostUsers:
+          Type: Api
+          Properties:
+            Path: /users
+            Method: POST
+
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: UsersTable
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+
+  UuidLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: uuid-layer
+      Description: uuid npm module
+      ContentUri: layers/uuid-layer
+      CompatibleRuntimes: [nodejs18.x]
+
+Outputs:
+  GetUsersUrl:
+    Description: API Gateway endpoint URL for GET /users
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/users"
+  PostUsersUrl:
+    Description: API Gateway endpoint URL for POST /users
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/users"
