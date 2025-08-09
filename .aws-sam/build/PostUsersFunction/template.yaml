@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: User API with Lambda, DynamoDB, uuid layer, and AWS SDK layer
+Description: User API with Lambda, DynamoDB, uuid layer, and AWS SDK layer (CORS fixed)
 
 Globals:
   Function:
@@ -10,12 +10,21 @@ Globals:
       Variables:
         TABLE_NAME: !Ref UsersTable
     Layers:
-      # Layer tự tạo để dùng uuid (npm install uuid trong layers/uuid-layer/nodejs)
       - !Ref UuidLayer
-      # Layer do AWS phát hành để có aws-sdk trên Node 18 (us-east-1)
       - arn:aws:lambda:us-east-1:668099181075:layer:AWSLambda-Node-AWS-SDK:6
 
 Resources:
+  # REST API dùng chung + CORS (SAM sẽ tự tạo method OPTIONS cho các path)
+  RestApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      Cors:
+        AllowOrigin: "'*'"                                         # đổi sang origin cụ thể nếu cần
+        AllowMethods: "'GET,POST,OPTIONS'"
+        AllowHeaders: "'Content-Type,Authorization,X-Requested-With'"
+        MaxAge: "'86400'"
+
   GetUsersFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -24,9 +33,10 @@ Resources:
         - DynamoDBReadPolicy:
             TableName: !Ref UsersTable
       Events:
-        GetUsers:
+        GetUsersEventV2:
           Type: Api
           Properties:
+            RestApiId: !Ref RestApi
             Path: /users
             Method: GET
 
@@ -38,9 +48,10 @@ Resources:
         - DynamoDBCrudPolicy:
             TableName: !Ref UsersTable
       Events:
-        PostUsers:
+        PostUsersEventV2:
           Type: Api
           Properties:
+            RestApiId: !Ref RestApi
             Path: /users
             Method: POST
 
@@ -64,10 +75,30 @@ Resources:
       ContentUri: layers/uuid-layer
       CompatibleRuntimes: [nodejs18.x]
 
+  # Thêm CORS cho response lỗi 4XX/5XX của API Gateway (tránh CORS khi backend trả lỗi)
+  GatewayResponseDefault4xx:
+    Type: AWS::ApiGateway::GatewayResponse
+    Properties:
+      RestApiId: !Ref RestApi
+      ResponseType: DEFAULT_4XX
+      ResponseParameters:
+        gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+        gatewayresponse.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Requested-With'"
+        gatewayresponse.header.Access-Control-Allow-Methods: "'GET,POST,OPTIONS'"
+  GatewayResponseDefault5xx:
+    Type: AWS::ApiGateway::GatewayResponse
+    Properties:
+      RestApiId: !Ref RestApi
+      ResponseType: DEFAULT_5XX
+      ResponseParameters:
+        gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+        gatewayresponse.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Requested-With'"
+        gatewayresponse.header.Access-Control-Allow-Methods: "'GET,POST,OPTIONS'"
+
 Outputs:
-  GetUsersUrl:
-    Description: API Gateway endpoint URL for GET /users
-    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/users"
-  PostUsersUrl:
-    Description: API Gateway endpoint URL for POST /users
-    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/users"
+  ApiBaseUrl:
+    Description: API base URL
+    Value: !Sub "https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod"
+  UsersUrl:
+    Description: GET/POST /users
+    Value: !Sub "https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/users"
